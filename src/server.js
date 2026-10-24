@@ -5,6 +5,8 @@ import mongoose from 'mongoose';
 import { summarize, isValidValue, isValidDate } from './calc.js';
 import { readNumbersFromImage } from './gemini.js';
 import { buildWorkbook } from './excel.js';
+import { wrap, badRequest } from './http.js';
+import { invoiceRouter } from './invoices.js';
 
 const MAX_MONTHS = 6;
 
@@ -22,15 +24,6 @@ const app = express();
 const origins = (process.env.CORS_ORIGIN || '*').split(',').map((s) => s.trim());
 app.use(cors({ origin: origins.includes('*') ? true : origins }));
 app.use(express.json({ limit: '10mb' }));
-
-const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
-  if (!e.status || e.status >= 500) console.error(e);
-  res.status(e.status || 500).json({ error: e.message || 'Lỗi server' });
-});
-
-function badRequest(message) {
-  return Object.assign(new Error(message), { status: 400 });
-}
 
 function parseSlipBody(body) {
   const { date, values } = body || {};
@@ -52,6 +45,8 @@ async function groupedMonths() {
     .map(([month, list]) => ({ month, slips: list }))
     .sort((a, b) => b.month.localeCompare(a.month));
 }
+
+app.use('/api/invoices', invoiceRouter);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
