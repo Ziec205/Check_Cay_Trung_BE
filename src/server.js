@@ -24,7 +24,7 @@ app.use(cors({ origin: origins.includes('*') ? true : origins }));
 app.use(express.json({ limit: '10mb' }));
 
 const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
-  console.error(e);
+  if (!e.status || e.status >= 500) console.error(e);
   res.status(e.status || 500).json({ error: e.message || 'Lỗi server' });
 });
 
