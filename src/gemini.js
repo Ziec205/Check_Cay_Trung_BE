@@ -4,7 +4,7 @@ const PROMPT = `Đây là ảnh chụp trang sổ viết tay, có thể bị xoa
 Hãy chép lại toàn bộ chữ và số nhìn thấy trong ảnh theo thứ tự đọc, giữ nguyên từng dòng.
 Chỉ cần chép, không giải thích, không tính toán.`;
 
-const TIMEOUT_MS = 55000;
+const TIMEOUT_MS = 20000;
 
 export async function readNumbersFromImage({ image, mimeType }) {
   const key = process.env.GEMINI_API_KEY;
@@ -26,7 +26,7 @@ export async function readNumbersFromImage({ image, mimeType }) {
       }),
     });
   } catch (e) {
-    if (e.name === 'TimeoutError') throw new Error('Gemini phản hồi quá lâu, hãy thử lại');
+    if (e.name === 'TimeoutError') throw new Error('Gemini không trả lời sau 20 giây, hãy thử lại');
     throw e;
   }
 
