@@ -9,7 +9,7 @@ Trả về JSON dạng {"values":[...]}.`;
 export async function readNumbersFromImage({ image, mimeType }) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('Chưa cấu hình GEMINI_API_KEY trên server');
-  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  const model = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
   const res = await fetch(url, {
