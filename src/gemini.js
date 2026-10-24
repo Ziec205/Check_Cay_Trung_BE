@@ -38,5 +38,5 @@ export async function readNumbersFromImage({ image, mimeType }) {
   const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
   // Lọc các cụm đúng 3 chữ số trong văn bản AI trả về
   const found = text.match(/(?<!\d)\d{3}(?!\d)/g) || [];
-  return found.map(Number).filter(isValidValue);
+  return { raw: text, values: found.map(Number).filter(isValidValue) };
 }

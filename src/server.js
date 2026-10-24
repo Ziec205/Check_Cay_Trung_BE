@@ -99,7 +99,7 @@ app.post('/api/ocr', wrap(async (req, res) => {
   const { image, mimeType } = req.body || {};
   if (!image || !/^image\//.test(mimeType || '')) throw badRequest('Thiếu ảnh');
   try {
-    res.json({ values: await readNumbersFromImage({ image, mimeType }) });
+    res.json(await readNumbersFromImage({ image, mimeType }));
   } catch (e) {
     throw Object.assign(e, { status: 502 });
   }
