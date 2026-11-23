@@ -124,6 +124,16 @@ app.get('/api/export', wrap(async (req, res) => {
   res.end();
 }));
 
+// Bản giao diện cũ còn lưu trên điện thoại vẫn có thể gọi chức năng đọc ảnh đã bỏ
+app.post('/api/ocr', (req, res) => {
+  res.status(410).json({ error: 'Đã bỏ chức năng đọc ảnh bằng AI. Hãy đóng hẳn ứng dụng rồi mở lại để dùng bản mới.' });
+});
+
+// Đường dẫn API không tồn tại: trả lỗi dạng JSON để giao diện hiện được thông báo
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Không tìm thấy chức năng này trên máy chủ. Hãy tải lại ứng dụng.' });
+});
+
 const port = process.env.PORT || 4000;
 if (!process.env.MONGODB_URI) {
   console.error('Thiếu MONGODB_URI');
