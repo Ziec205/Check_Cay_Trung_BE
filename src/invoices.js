@@ -19,6 +19,9 @@ const invoiceSchema = new mongoose.Schema(
     number: { type: String, required: true },
     customer: { type: String, required: true },
     lines: { type: [lineSchema], default: undefined },
+    // Trứng dư bán theo kg (phần lẻ dưới 1 kg), giá do người bán tự nhập
+    leftoverKg: Number,
+    leftoverPricePerKg: Number,
     // Hóa đơn cũ (trước khi có loại trứng) chỉ có một dòng lưu ở hai trường này
     trees: Number,
     pricePerEgg: Number,
@@ -35,11 +38,22 @@ function linesOf(inv) {
   return [{ eggType: '', trees: inv.trees, pricePerEgg: inv.pricePerEgg }];
 }
 
+function leftoverOf(inv) {
+  if (!inv.leftoverKg || !inv.leftoverPricePerKg) return null;
+  const tenths = Math.round(inv.leftoverKg * 10);
+  return {
+    kg: tenths / 10,
+    pricePerKg: inv.leftoverPricePerKg,
+    amount: Math.round((tenths * inv.leftoverPricePerKg) / 10),
+  };
+}
+
 function toJson(inv) {
   const lines = linesOf(inv).map((l) => {
     const eggs = l.trees * EGGS_PER_TREE;
     return { eggType: l.eggType, trees: l.trees, pricePerEgg: l.pricePerEgg, eggs, amount: eggs * l.pricePerEgg };
   });
+  const leftover = leftoverOf(inv);
   return {
     id: String(inv._id),
     number: inv.number,
@@ -49,7 +63,8 @@ function toJson(inv) {
     lines,
     trees: lines.reduce((s, l) => s + l.trees, 0),
     eggs: lines.reduce((s, l) => s + l.eggs, 0),
-    total: lines.reduce((s, l) => s + l.amount, 0),
+    leftover,
+    total: lines.reduce((s, l) => s + l.amount, 0) + (leftover?.amount || 0),
   };
 }
 
@@ -65,6 +80,18 @@ function parseLine(l, i) {
   return { eggType, trees, pricePerEgg };
 }
 
+// Trứng dư: { kg, pricePerKg } hoặc bỏ trống. kg lấy một chữ số thập phân (0,1 kg).
+function parseLeftover(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const kg = Number(v.kg);
+  const pricePerKg = Number(v.pricePerKg);
+  if (!kg && !pricePerKg) return null;
+  if (!Number.isFinite(kg) || kg <= 0 || kg > 100000) throw badRequest('Trứng dư: số kg phải lớn hơn 0');
+  if (Math.abs(kg * 10 - Math.round(kg * 10)) > 1e-6) throw badRequest('Trứng dư: số kg chỉ lấy một chữ số sau dấu phẩy, ví dụ 0,1');
+  if (!Number.isInteger(pricePerKg) || pricePerKg < 1 || pricePerKg > 100000000) throw badRequest('Trứng dư: giá mỗi kg phải là số nguyên lớn hơn 0');
+  return { leftoverKg: Math.round(kg * 10) / 10, leftoverPricePerKg: pricePerKg };
+}
+
 function parseBody(body) {
   const customer = String(body?.customer ?? '').trim();
   const issuedAt = String(body?.issuedAt ?? '');
@@ -74,7 +101,10 @@ function parseBody(body) {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(issuedAt) || Number.isNaN(Date.parse(issuedAt))) throw badRequest('Ngày giờ không hợp lệ');
   if (!Array.isArray(lines) || lines.length === 0) throw badRequest('Hóa đơn cần ít nhất một loại trứng');
   if (lines.length > MAX_LINES) throw badRequest(`Một hóa đơn tối đa ${MAX_LINES} loại trứng`);
-  return { customer, issuedAt, month: issuedAt.slice(0, 7), lines: lines.map(parseLine) };
+  return {
+    customer, issuedAt, month: issuedAt.slice(0, 7), lines: lines.map(parseLine),
+    leftover: parseLeftover(body?.leftover),
+  };
 }
 
 // Số hóa đơn theo tháng: HD-202610-001
@@ -115,15 +145,18 @@ invoiceRouter.get('/', wrap(async (req, res) => {
 }));
 
 invoiceRouter.post('/', wrap(async (req, res) => {
-  const data = parseBody(req.body);
-  const inv = await Invoice.create({ ...data, number: await nextNumber(data.month) });
+  const { leftover, ...data } = parseBody(req.body);
+  const inv = await Invoice.create({ ...data, ...leftover, number: await nextNumber(data.month) });
   res.status(201).json(toJson(inv));
 }));
 
 invoiceRouter.put('/:id', wrap(async (req, res) => {
+  const { leftover, ...data } = parseBody(req.body);
+  const unset = { trees: 1, pricePerEgg: 1 };
+  if (!leftover) Object.assign(unset, { leftoverKg: 1, leftoverPricePerKg: 1 });
   const inv = await Invoice.findByIdAndUpdate(
     req.params.id,
-    { $set: parseBody(req.body), $unset: { trees: 1, pricePerEgg: 1 } },
+    { $set: { ...data, ...leftover }, $unset: unset },
     { new: true },
   );
   if (!inv) throw notFound('Không tìm thấy hóa đơn');

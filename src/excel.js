@@ -26,12 +26,14 @@ export async function buildWorkbook(months) {
     { header: 'Tổng kg nguyên', key: 'w', width: 16 },
     { header: 'Tổng kg dư', key: 'r', width: 14 },
     { header: 'Tổng cộng (kg)', key: 't', width: 16 },
+    { header: 'Tiền trứng dư (VND)', key: 'l', width: 20 },
   ];
   styleHeader(sum.getRow(1));
 
   for (const { month, slips } of months) {
     const s = summarize(slips.flatMap((x) => x.values));
-    sum.addRow({ m: monthLabel(month), c: s.count, w: s.wholeKg, r: s.remKg, t: s.totalKg });
+    const leftover = slips.reduce((t, x) => t + (x.leftoverAmount || 0), 0);
+    sum.addRow({ m: monthLabel(month), c: s.count, w: s.wholeKg, r: s.remKg, t: s.totalKg, l: leftover });
 
     const ws = wb.addWorksheet(`T${monthLabel(month).replace('/', '-')}`);
     ws.columns = [
@@ -47,14 +49,20 @@ export async function buildWorkbook(months) {
     total.font = { bold: true };
     ws.addRow({ a: 'Tổng kg dư', b: s.remKg });
     ws.addRow({ a: 'Tổng cộng (kg)', b: s.totalKg });
+    ws.addRow({ a: 'Tiền trứng dư (VND)', b: leftover });
 
     ws.addRow([]);
-    const head = ws.addRow(['Ngày', 'Số cây', 'Kg dư', 'Các số đã nhập']);
+    const head = ws.addRow(['Ngày', 'Số cây', 'Kg dư', 'Giá dư (VND/kg)', 'Tiền dư (VND)', 'Các số đã nhập']);
     styleHeader(head);
-    ws.getColumn(4).width = 70;
+    ws.getColumn(4).width = 16;
+    ws.getColumn(5).width = 16;
+    ws.getColumn(6).width = 70;
     for (const slip of [...slips].sort((a, b) => a.date.localeCompare(b.date))) {
       const ss = summarize(slip.values);
-      ws.addRow([slip.date.split('-').reverse().join('/'), ss.count, ss.remKg, slip.values.join(' ')]);
+      ws.addRow([
+        slip.date.split('-').reverse().join('/'), ss.count, ss.remKg,
+        slip.leftoverPrice || '', slip.leftoverAmount || 0, slip.values.join(' '),
+      ]);
     }
   }
   if (!months.length) sum.addRow({ m: 'Chưa có dữ liệu' });

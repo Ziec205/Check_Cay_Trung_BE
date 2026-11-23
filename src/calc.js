@@ -29,3 +29,9 @@ export function isValidValue(v) {
 export function isValidDate(s) {
   return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
 }
+
+// Tiền trứng dư: số kg dư x giá mỗi kg, làm tròn đến đồng.
+export function leftoverAmount(remKg, pricePerKg) {
+  if (!pricePerKg) return 0;
+  return Math.round((Math.round(remKg * 10) * pricePerKg) / 10);
+}

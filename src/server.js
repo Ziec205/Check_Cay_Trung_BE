@@ -2,8 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
-import { summarize, isValidValue, isValidDate } from './calc.js';
-import { readNumbersFromImage } from './gemini.js';
+import { summarize, isValidValue, isValidDate, leftoverAmount } from './calc.js';
 import { buildWorkbook } from './excel.js';
 import { wrap, badRequest } from './http.js';
 import { invoiceRouter } from './invoices.js';
@@ -15,6 +14,8 @@ const slipSchema = new mongoose.Schema(
     date: { type: String, required: true },
     month: { type: String, required: true, index: true },
     values: { type: [Number], required: true },
+    // Giá trứng dư (phần lẻ dưới 1 kg của mỗi cây), tính theo VND mỗi kg
+    leftoverPrice: Number,
   },
   { timestamps: true },
 );
@@ -23,7 +24,14 @@ const Slip = mongoose.model('Slip', slipSchema);
 const app = express();
 const origins = (process.env.CORS_ORIGIN || '*').split(',').map((s) => s.trim());
 app.use(cors({ origin: origins.includes('*') ? true : origins }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '1mb' }));
+
+function parseLeftoverPrice(v) {
+  if (v === undefined || v === null || v === '' || Number(v) === 0) return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0 || n > 100000000) throw badRequest('Giá trứng dư phải là số nguyên không âm');
+  return n;
+}
 
 function parseSlipBody(body) {
   const { date, values } = body || {};
@@ -31,7 +39,20 @@ function parseSlipBody(body) {
   if (!Array.isArray(values) || values.length === 0) throw badRequest('Chưa có số nào');
   const nums = values.map(Number);
   if (!nums.every(isValidValue)) throw badRequest('Mỗi số phải gồm đúng 3 chữ số');
-  return { date, month: date.slice(0, 7), values: nums };
+  return { date, month: date.slice(0, 7), values: nums, leftoverPrice: parseLeftoverPrice(body.leftoverPrice) };
+}
+
+function slipJson(s) {
+  const sum = summarize(s.values);
+  const leftoverPrice = s.leftoverPrice || null;
+  return {
+    id: String(s._id),
+    date: s.date,
+    values: s.values,
+    ...sum,
+    leftoverPrice,
+    leftoverAmount: leftoverAmount(sum.remKg, leftoverPrice),
+  };
 }
 
 async function groupedMonths() {
@@ -39,7 +60,7 @@ async function groupedMonths() {
   const map = new Map();
   for (const s of slips) {
     if (!map.has(s.month)) map.set(s.month, []);
-    map.get(s.month).push({ id: String(s._id), date: s.date, values: s.values });
+    map.get(s.month).push(slipJson(s));
   }
   return [...map.entries()]
     .map(([month, list]) => ({ month, slips: list }))
@@ -57,6 +78,7 @@ app.get('/api/months', wrap(async (req, res) => {
     month,
     slipCount: slips.length,
     ...summarize(slips.flatMap((s) => s.values)),
+    leftoverAmount: slips.reduce((t, s) => t + s.leftoverAmount, 0),
   }));
   res.json({ months, overflow: months.slice(MAX_MONTHS).map((m) => m.month), max: MAX_MONTHS });
 }));
@@ -65,7 +87,7 @@ app.get('/api/slips', wrap(async (req, res) => {
   const { month } = req.query;
   const filter = month ? { month: String(month) } : {};
   const slips = await Slip.find(filter).sort({ date: -1, createdAt: -1 }).lean();
-  res.json(slips.map((s) => ({ id: String(s._id), date: s.date, values: s.values, ...summarize(s.values) })));
+  res.json(slips.map(slipJson));
 }));
 
 app.post('/api/slips', wrap(async (req, res) => {
@@ -88,16 +110,6 @@ app.delete('/api/months/:month', wrap(async (req, res) => {
   if (!/^\d{4}-\d{2}$/.test(req.params.month)) throw badRequest('Tháng không hợp lệ');
   const r = await Slip.deleteMany({ month: req.params.month });
   res.json({ deleted: r.deletedCount });
-}));
-
-app.post('/api/ocr', wrap(async (req, res) => {
-  const { image, mimeType } = req.body || {};
-  if (!image || !/^image\//.test(mimeType || '')) throw badRequest('Thiếu ảnh');
-  try {
-    res.json(await readNumbersFromImage({ image, mimeType }));
-  } catch (e) {
-    throw Object.assign(e, { status: 502 });
-  }
 }));
 
 app.get('/api/export', wrap(async (req, res) => {
